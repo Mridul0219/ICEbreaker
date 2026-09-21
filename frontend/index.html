@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AlumniBridge - Alumni Mentorship Platform</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+
+    <div id="authPage" class="auth-page">
+        <div class="auth-container">
+            <div class="auth-brand">
+                <div class="brand-icon">🎓</div>
+                <h1>AlumniBridge</h1>
+                <p>Connect. Learn. Grow.</p>
+            </div>
+
+            <div id="roleSelection" class="auth-box">
+                <h2>Welcome to AlumniBridge</h2>
+                <p class="auth-subtitle">Choose your account type to continue</p>
+                <div class="role-selection">
+                    <button class="role-card" onclick="selectAuthRole('student')">
+                        <div class="role-icon">🎓</div>
+                        <h3>Student</h3>
+                        <p>Find mentors, request guidance and ask for job referrals.</p>
+                    </button>
+                    <button class="role-card" onclick="selectAuthRole('alumni')">
+                        <div class="role-icon">👨‍💼</div>
+                        <h3>Alumni</h3>
+                        <p>Mentor students and help them with career opportunities.</p>
+                    </button>
+                </div>
+            </div>
+
+            <div id="loginBox" class="auth-box hidden">
+                <h2 id="loginRoleText">Login</h2>
+                <p class="auth-subtitle">Enter your credentials to access your account</p>
+
+                <form id="loginForm" onsubmit="login(event)">
+                    <div class="form-group">
+                        <label>Email Address</label>
+                        <input type="email" id="loginEmail" placeholder="name@example.com" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Password</label>
+                        <input type="password" id="loginPassword" placeholder="Enter password" required>
+                    </div>
+
+                    <button type="submit" class="primary-button full-width">Login</button>
+                </form>
+
+                <div class="auth-links">
+                    <button type="button" onclick="showSignup()">Don't have an account? Sign up</button>
+                    <button type="button" onclick="showForgotPassword()">Forgot password?</button>
+                    <button type="button" onclick="showRoleSelection()">← Back to role selection</button>
+                </div>
+            </div>
+
+            <div id="signupBox" class="auth-box hidden">
+                <h2 id="signupRoleText">Create Account</h2>
+                <p class="auth-subtitle">Enter your details to create your account</p>
+
+                <form id="signupForm" onsubmit="signup(event)">
+                    <div class="form-group">
+                        <label>Full Name</label>
+                        <input type="text" id="signupName" placeholder="Enter your full name" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Email Address</label>
+                        <input type="email" id="signupEmail" placeholder="name@example.com" required>
+                    </div>
+
+                    <div id="studentSignupFields" class="hidden"></div>
+                    <div id="alumniSignupFields" class="hidden"></div>
+
+                    <div class="form-group">
+                        <label>Password</label>
+                        <input type="password" id="signupPassword" placeholder="Create a password" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Confirm Password</label>
+                        <input type="password" id="signupConfirmPassword" placeholder="Confirm your password" required>
+                    </div>
+
+                    <button type="submit" class="primary-button full-width">Create Account</button>
+                </form>
+
+                <div class="auth-links">
+                    <button type="button" onclick="showLogin()">Already have an account? Login</button>
+                    <button type="button" onclick="showRoleSelection()">← Back to role selection</button>
+                </div>
+            </div>
+
+            <div id="forgotBox" class="auth-box hidden">
+                <h2>Reset Password</h2>
+                <p class="auth-subtitle">Enter your email address to receive reset instructions</p>
+
+                <form id="forgotForm" onsubmit="resetPassword(event)">
+                    <div class="form-group">
+                        <label>Email Address</label>
+                        <input type="email" id="forgotEmail" placeholder="name@example.com" required>
+                    </div>
+
+                    <button type="submit" class="primary-button full-width">Send Reset Link</button>
+                </form>
+
+                <div class="auth-links">
+                    <button type="button" onclick="showLogin()">Back to login</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================= STUDENT APP ================= -->
+
+    <div id="studentApp" class="app hidden">
+
+        <header class="topbar">
+            <div class="brand">🎓 AlumniBridge</div>
+
+            <nav class="main-navigation">
+                <button class="nav-button" onclick="showStudentPage('dashboard')">Dashboard</button>
+                <button class="nav-button" onclick="showStudentPage('mentors')">Find Mentors</button>
+                <button class="nav-button" onclick="showStudentPage('sessions')">My Sessions</button>
+                <button class="nav-button" onclick="showStudentPage('referrals')">Referral Requests</button>
+                <button class="nav-button" onclick="showStudentPage('profile')">My Profile</button>
+            </nav>
+
+            <div class="header-right">
+                <div class="notification-wrapper">
+                    <button class="notification-button" onclick="toggleNotifications('student')">
+                        🔔
+                        <span id="studentNotificationBadge" class="notification-count hidden">0</span>
+                    </button>
+                    <div id="studentNotificationPanel" class="notification-panel">
+                        <div class="notification-header">
+                            <strong>Notifications</strong>
+                            <button onclick="clearNotifications('student')">Clear All</button>
+                        </div>
+                        <div id="studentNotificationList"></div>
+                    </div>
+                </div>
+
+                <button class="user-button" onclick="showStudentPage('profile')">
+                    👤
+                    <span id="studentHeaderName">Student</span>
+                </button>
+                <button class="logout-button" onclick="logout()">Logout</button>
+            </div>
+        </header>
+
+        <main class="main-content">
+
+            <!-- Student Dashboard -->
+            <section id="studentDashboardPage" class="page">
+                <div class="welcome-banner">
+                    <p>Student Portal</p>
+                    <h1>
+                        Welcome back,
+                        <span id="studentWelcomeName">Student</span>! 👋
+                    </h1>
+                    <p>Connect with alumni mentors, schedule guidance sessions, and request job referrals.</p>
+                </div>
+
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-icon">👨‍💼</div>
+                        <div>
+                            <span>Available Alumni</span>
+                            <strong id="studentMentorCount">0</strong>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">📅</div>
+                        <div>
+                            <span>My Sessions</span>
+                            <strong id="studentSessionCount">0</strong>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">📄</div>
+                        <div>
+                            <span>Referral Requests</span>
+                            <strong id="studentReferralCount">0</strong>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="page-heading">
+                    <div>
+                        <h2>Featured Mentors</h2>
+                        <p>Alumni available to help you with your career</p>
+                    </div>
+                    <button class="secondary-button" onclick="showStudentPage('mentors')">View All Mentors</button>
+                </div>
+
+                <div id="studentRecommendedMentors" class="mentor-grid"></div>
+            </section>
+
+            <!-- Find Mentors -->
+            <section id="studentMentorsPage" class="page hidden">
+                <div class="page-heading">
+                    <div>
+                        <h2>Find Alumni Mentors</h2>
+                        <p>Search alumni by company, title, or skills</p>
+                    </div>
+                </div>
+                <div class="search-box">
+                    <input type="text" id="mentorSearch" placeholder="Search by name, company, role, or skills..."
+                        oninput="loadStudentMentors()">
+                </div>
+                <div id="studentMentorList" class="mentor-grid"></div>
+            </section>
+
+            <!-- My Sessions -->
+            <section id="studentSessionsPage" class="page hidden">
+                <div class="page-heading">
+                    <div>
+                        <h2>My Mentorship Sessions</h2>
+                        <p>Track your upcoming and past sessions with alumni</p>
+                    </div>
+                </div>
+                <div id="studentSessionList"></div>
+            </section>
+
+            <!-- Referral Requests -->
+            <section id="studentReferralsPage" class="page hidden">
+                <div class="page-heading">
+                    <div>
+                        <h2>Referral Requests</h2>
+                        <p>Request and track job referrals from alumni</p>
+                    </div>
+                    <button class="primary-button" onclick="openReferralRequestModal()">New Referral Request</button>
+                </div>
+                <div id="studentReferralList"></div>
+            </section>
+
+            <!-- Student Profile -->
+            <section id="studentProfilePage" class="page hidden">
+                <div class="page-heading">
+                    <div>
+                        <h2>Student Profile</h2>
+                        <p>Manage your account information and links</p>
+                    </div>
+                </div>
+                <div class="auth-box">
+                    <form onsubmit="updateStudentProfile(event)">
+                        <div class="form-group">
+                            <label>Full Name</label>
+                            <input type="text" id="studentProfileName" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Email Address</label>
+                            <input type="email" id="studentProfileEmail" disabled>
+                        </div>
+                        <div class="form-group">
+                            <label>Department</label>
+                            <input type="text" id="studentProfileDepartment" placeholder="e.g. CSE">
+                        </div>
+                        <div class="form-group">
+                            <label>Skills / Interests</label>
+                            <input type="text" id="studentProfileSkills"
+                                placeholder="e.g. React, Python, Web Development">
+                        </div>
+                        <div class="form-group">
+                            <label>CV Link <span style="font-weight:400; color:#6b7280;">(Google Drive, Dropbox,
+                                    etc.)</span></label>
+                            <input type="url" id="studentProfileCvLink" placeholder="https://drive.google.com/...">
+                        </div>
+                        <div class="form-group">
+                            <label>Portfolio / GitHub / Previous Job Link</label>
+                            <input type="url" id="studentProfilePortfolioLink" placeholder="https://github.com/...">
+                        </div>
+                        <button type="submit" class="primary-button">Save Profile</button>
+                    </form>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- ================= ALUMNI APP ================= -->
+
+    <div id="alumniApp" class="app hidden">
+
+        <header class="topbar">
+            <div class="brand">🎓 AlumniBridge</div>
+
+            <nav class="main-navigation">
+                <button class="nav-button" onclick="showAlumniPage('dashboard')">Dashboard</button>
+                <button class="nav-button" onclick="showAlumniPage('requests')">Session Requests</button>
+                <button class="nav-button" onclick="showAlumniPage('availability')">My Availability</button>
+                <button class="nav-button" onclick="showAlumniPage('referrals')">Referral Requests</button>
+                <button class="nav-button" onclick="showAlumniPage('profile')">My Profile</button>
+            </nav>
+
+            <div class="header-right">
+                <div class="notification-wrapper">
+                    <button class="notification-button" onclick="toggleNotifications('alumni')">
+                        🔔
+                        <span id="alumniNotificationBadge" class="notification-count hidden">0</span>
+                    </button>
+                    <div id="alumniNotificationPanel" class="notification-panel">
+                        <div class="notification-header">
+                            <strong>Notifications</strong>
+                            <button onclick="clearNotifications('alumni')">Clear All</button>
+                        </div>
+                        <div id="alumniNotificationList"></div>
+                    </div>
+                </div>
+
+                <button class="user-button" onclick="showAlumniPage('profile')">
+                    👨‍💼
+                    <span id="alumniHeaderName">Alumni</span>
+                </button>
+                <button class="logout-button" onclick="logout()">Logout</button>
+            </div>
+        </header>
+
+        <main class="main-content">
+            <!-- Alumni Dashboard -->
+            <section id="alumniDashboardPage" class="page">
+                <div class="welcome-banner">
+                    <p>Alumni Portal</p>
+                    <h1>
+                        Welcome back,
+                        <span id="alumniWelcomeName">Alumni</span>! 👋
+                    </h1>
+                    <p>Help students grow by accepting mentorship sessions and providing job referrals.</p>
+                </div>
+
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-icon">📅</div>
+                        <div>
+                            <span>Active Slots</span>
+                            <strong id="alumniSlotCount">0</strong>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">📩</div>
+                        <div>
+                            <span>Pending Sessions</span>
+                            <strong id="alumniPendingCount">0</strong>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">🤝</div>
+                        <div>
+                            <span>Referral Requests</span>
+                            <strong id="alumniReferralCount">0</strong>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="page-heading">
+                    <div>
+                        <h2>Recent Requests</h2>
+                        <p>Mentorship requests waiting for your response</p>
+                    </div>
+                    <button class="secondary-button" onclick="showAlumniPage('requests')">View All Requests</button>
+                </div>
+
+                <div id="alumniRecentRequests"></div>
+            </section>
+
+            <!-- Alumni Session Requests -->
+            <section id="alumniRequestsPage" class="page hidden">
+                <div class="page-heading">
+                    <div>
+                        <h2>Mentorship Requests</h2>
+                        <p>Manage session requests from students</p>
+                    </div>
+                </div>
+                <div id="alumniRequestList"></div>
+            </section>
+
+            <!-- Alumni Availability -->
+            <section id="alumniAvailabilityPage" class="page hidden">
+                <div class="page-heading">
+                    <div>
+                        <h2>My Availability</h2>
+                        <p>Set time slots when you are available for mentorship</p>
+                    </div>
+                    <button class="primary-button" onclick="openAvailabilityModal()">Add Available Slot</button>
+                </div>
+                <div id="alumniAvailabilityList" class="availability-grid"></div>
+            </section>
+
+            <!-- Alumni Referrals -->
+            <section id="alumniReferralsPage" class="page hidden">
+                <div class="page-heading">
+                    <div>
+                        <h2>Referral Requests</h2>
+                        <p>Review student requests for job referrals</p>
+                    </div>
+                </div>
+                <div id="alumniReferralList"></div>
+            </section>
+
+            <!-- Alumni Profile -->
+            <section id="alumniProfilePage" class="page hidden">
+                <div class="page-heading">
+                    <div>
+                        <h2>Alumni Profile</h2>
+                        <p>Update your professional details</p>
+                    </div>
+                </div>
+                <div class="auth-box">
+                    <form onsubmit="updateAlumniProfile(event)">
+                        <div class="form-group">
+                            <label>Full Name</label>
+                            <input type="text" id="alumniProfileName" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Email Address</label>
+                            <input type="email" id="alumniProfileEmail" disabled>
+                        </div>
+                        <div class="form-group">
+                            <label>Company</label>
+                            <input type="text" id="alumniProfileCompany">
+                        </div>
+                        <div class="form-group">
+                            <label>Job Title</label>
+                            <input type="text" id="alumniProfileJob">
+                        </div>
+                        <div class="form-group">
+                            <label>Skills</label>
+                            <input type="text" id="alumniProfileSkills" placeholder="e.g. React, Python, AWS">
+                        </div>
+                        <div class="form-group">
+                            <label>Bio</label>
+                            <textarea id="alumniProfileBio"
+                                placeholder="Tell students about your experience..."></textarea>
+                        </div>
+                        <button type="submit" class="primary-button">Save Changes</button>
+                    </form>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Modal -->
+    <div id="modal" class="modal hidden">
+        <div class="modal-content">
+            <button class="modal-close" onclick="closeModal()">×</button>
+            <div id="modalBody"></div>
+        </div>
+    </div>
+
+    <!-- Toast -->
+    <div id="toast" class="toast"></div>
+
+    <script src="script.js"></script>
+</body>
+
+</html>
