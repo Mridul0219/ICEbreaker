@@ -1,59 +1,66 @@
 /* =========================================================
-   ALUMNI BRIDGE - COMPLETE JAVASCRIPT
-   Compatible with the updated index.html + styles.css
+   ALUMNI BRIDGE - FRONTEND SCRIPT (PHP + MySQL BACKED)
+   Same UI, function names and IDs as the original version,
+   but all data now comes from the PHP backend instead of
+   localStorage.
    ========================================================= */
-
-const STORAGE_KEYS = {
-    users: "alumniBridgeUsers",
-    currentUser: "alumniBridgeCurrentUser",
-    sessions: "alumniBridgeSessions",
-    availability: "alumniBridgeAvailability",
-    notifications: "alumniBridgeNotifications",
-    referrals: "alumniBridgeReferrals"
-};
 
 let selectedAuthRole = "student";
+let currentUser = null; // cached profile of the logged-in user
 
 /* =========================================================
-   STORAGE HELPERS
+   API CLIENT
    ========================================================= */
-function getStorage(key, defaultValue = []) {
+async function apiRequest(url, method = "GET", body = null) {
+    const options = { method, credentials: "same-origin", headers: {} };
+    if (body !== null) {
+        options.headers["Content-Type"] = "application/json";
+        options.body = JSON.stringify(body);
+    }
     try {
-        const data = localStorage.getItem(key);
-        return data ? JSON.parse(data) : defaultValue;
+        const response = await fetch(url, options);
+        return await response.json();
     } catch (error) {
-        console.error("Storage error:", error);
-        return defaultValue;
+        console.error("API request failed:", error);
+        return { success: false, message: "Unable to reach the server. Please check that Apache/MySQL are running." };
     }
 }
 
-function setStorage(key, value) {
-    localStorage.setItem(key, JSON.stringify(value));
-}
+const API = {
+    me: () => apiRequest("backend/api/auth/me.php"),
+    login: (payload) => apiRequest("backend/api/auth/login.php", "POST", payload),
+    register: (payload) => apiRequest("backend/api/auth/register.php", "POST", payload),
+    logout: () => apiRequest("backend/api/auth/logout.php", "POST", {}),
+    forgotPassword: (email) => apiRequest("backend/api/auth/forgot_password.php", "POST", { email }),
 
-function getUsers() { return getStorage(STORAGE_KEYS.users, []); }
-function saveUsers(users) { setStorage(STORAGE_KEYS.users, users); }
-function getSessions() { return getStorage(STORAGE_KEYS.sessions, []); }
-function saveSessions(sessions) { setStorage(STORAGE_KEYS.sessions, sessions); }
-function getAvailability() { return getStorage(STORAGE_KEYS.availability, []); }
-function saveAvailability(availability) { setStorage(STORAGE_KEYS.availability, availability); }
-function getNotifications() { return getStorage(STORAGE_KEYS.notifications, []); }
-function saveNotifications(notifications) { setStorage(STORAGE_KEYS.notifications, notifications); }
-function getReferrals() { return getStorage(STORAGE_KEYS.referrals, []); }
-function saveReferrals(referrals) { setStorage(STORAGE_KEYS.referrals, referrals); }
+    updateStudentProfile: (payload) => apiRequest("backend/api/students/update_profile.php", "POST", payload),
+    updateAlumniProfile: (payload) => apiRequest("backend/api/alumni/update_profile.php", "POST", payload),
 
-function getCurrentUser() {
-    const id = localStorage.getItem(STORAGE_KEYS.currentUser);
-    if (!id) return null;
-    return getUsers().find(user => user.id === id) || null;
-}
+    listMentors: (search) => apiRequest("backend/api/alumni/list.php" + (search ? ("?search=" + encodeURIComponent(search)) : "")),
+    getAlumni: (id) => apiRequest("backend/api/alumni/get.php?id=" + encodeURIComponent(id)),
 
-function generateId(prefix = "id") {
-    return prefix + "_" + Date.now() + "_" + Math.random().toString(36).substring(2, 9);
-}
+    listAvailability: () => apiRequest("backend/api/availability/list.php"),
+    createAvailability: (payload) => apiRequest("backend/api/availability/create.php", "POST", payload),
+    deleteAvailability: (id) => apiRequest("backend/api/availability/delete.php", "POST", { id }),
+
+    createSession: (payload) => apiRequest("backend/api/sessions/create.php", "POST", payload),
+    listSessions: () => apiRequest("backend/api/sessions/list.php"),
+    acceptSession: (id) => apiRequest("backend/api/sessions/accept.php", "POST", { id }),
+    declineSession: (id) => apiRequest("backend/api/sessions/decline.php", "POST", { id }),
+    cancelSession: (id, reason) => apiRequest("backend/api/sessions/cancel.php", "POST", { id, reason }),
+
+    createReferral: (payload) => apiRequest("backend/api/referrals/create.php", "POST", payload),
+    listReferrals: () => apiRequest("backend/api/referrals/list.php"),
+    declineReferral: (id) => apiRequest("backend/api/referrals/update_status.php", "POST", { id, status: "declined" }),
+    submitReferralProof: (id, proofNote, proofLink) => apiRequest("backend/api/referrals/submit_proof.php", "POST", { id, proofNote, proofLink }),
+
+    listNotifications: () => apiRequest("backend/api/notifications/list.php"),
+    markNotificationsRead: () => apiRequest("backend/api/notifications/mark_read.php", "POST", {}),
+    clearNotifications: () => apiRequest("backend/api/notifications/clear.php", "POST", {})
+};
 
 /* =========================================================
-   UTILITY HELPERS
+   UTILITY HELPERS (unchanged from the original frontend)
    ========================================================= */
 function capitalize(text) {
     if (!text) return "";
@@ -104,7 +111,7 @@ function formatDateTime(date, time) {
 }
 
 function formatNotificationTime(dateString) {
-    const date = new Date(dateString);
+    const date = new Date(dateString.replace(" ", "T"));
     return date.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
@@ -177,7 +184,7 @@ function updateSignupFields() {
     }
 }
 
-function signup(event) {
+async function signup(event) {
     event.preventDefault();
     const name = document.getElementById("signupName")?.value.trim();
     const email = document.getElementById("signupEmail")?.value.trim().toLowerCase();
@@ -193,55 +200,40 @@ function signup(event) {
         return;
     }
 
-    const users = getUsers();
-    if (users.some(user => user.email.toLowerCase() === email)) {
-        showToast("An account with this email already exists.");
+    const result = await API.register({
+        role: selectedAuthRole,
+        name,
+        email,
+        password,
+        confirmPassword
+    });
+
+    if (!result.success) {
+        showToast(result.message || "Could not create account.");
         return;
     }
 
-    const newUser = {
-        id: generateId(selectedAuthRole),
-        role: selectedAuthRole,
-        name: name,
-        email: email,
-        password: password,
-        department: document.getElementById("signupDepartment")?.value.trim() || "",
-        company: document.getElementById("signupCompany")?.value.trim() || "",
-        jobTitle: document.getElementById("signupJobTitle")?.value.trim() || "",
-        skills: "",
-        bio: "",
-        cvLink: "",
-        portfolioLink: "",
-        createdAt: new Date().toISOString()
-    };
-
-    users.push(newUser);
-    saveUsers(users);
     showToast("Account created successfully.");
     document.getElementById("signupForm")?.reset();
     showLogin();
 }
 
-function login(event) {
+async function login(event) {
     event.preventDefault();
     const email = document.getElementById("loginEmail")?.value.trim().toLowerCase();
     const password = document.getElementById("loginPassword")?.value;
 
-    const user = getUsers().find(item =>
-        item.email.toLowerCase() === email &&
-        item.password === password &&
-        item.role === selectedAuthRole
-    );
+    const result = await API.login({ role: selectedAuthRole, email, password });
 
-    if (!user) {
-        showToast("Invalid email, password or account type.");
+    if (!result.success) {
+        showToast(result.message || "Invalid email, password or account type.");
         return;
     }
 
-    localStorage.setItem(STORAGE_KEYS.currentUser, user.id);
+    currentUser = result.data;
     document.getElementById("authPage")?.classList.add("hidden");
 
-    if (user.role === "student") {
+    if (currentUser.role === "student") {
         document.getElementById("studentApp")?.classList.remove("hidden");
         showStudentPage("dashboard");
     } else {
@@ -251,8 +243,9 @@ function login(event) {
     updateAllNotifications();
 }
 
-function logout() {
-    localStorage.removeItem(STORAGE_KEYS.currentUser);
+async function logout() {
+    await API.logout();
+    currentUser = null;
     document.getElementById("studentApp")?.classList.add("hidden");
     document.getElementById("alumniApp")?.classList.add("hidden");
     document.getElementById("authPage")?.classList.remove("hidden");
@@ -260,13 +253,13 @@ function logout() {
     showToast("Logged out successfully.");
 }
 
-function resetPassword(event) {
+async function resetPassword(event) {
     event.preventDefault();
     const email = document.getElementById("forgotEmail")?.value.trim().toLowerCase();
-    const user = getUsers().find(u => u.email.toLowerCase() === email);
+    const result = await API.forgotPassword(email);
 
-    if (!user) {
-        showToast("No account found with this email.");
+    if (!result.success) {
+        showToast(result.message || "No account found with this email.");
         return;
     }
     showToast("Password reset instructions have been sent.");
@@ -309,18 +302,23 @@ function showAlumniPage(page) {
 /* =========================================================
    STUDENT DASHBOARD
    ========================================================= */
-function loadStudentDashboard() {
-    const user = getCurrentUser();
-    if (!user || user.role !== "student") return;
+async function loadStudentDashboard() {
+    if (!currentUser || currentUser.role !== "student") return;
 
     const welcomeName = document.getElementById("studentWelcomeName");
     const headerName = document.getElementById("studentHeaderName");
-    if (welcomeName) welcomeName.textContent = user.name;
-    if (headerName) headerName.textContent = user.name;
+    if (welcomeName) welcomeName.textContent = currentUser.name;
+    if (headerName) headerName.textContent = currentUser.name;
 
-    const mentors = getUsers().filter(u => u.role === "alumni");
-    const sessions = getSessions().filter(s => s.studentId === user.id);
-    const referrals = getReferrals().filter(r => r.studentId === user.id);
+    const [mentorsResult, sessionsResult, referralsResult] = await Promise.all([
+        API.listMentors(),
+        API.listSessions(),
+        API.listReferrals()
+    ]);
+
+    const mentors = mentorsResult.success ? mentorsResult.data : [];
+    const sessions = sessionsResult.success ? sessionsResult.data : [];
+    const referrals = referralsResult.success ? referralsResult.data : [];
 
     const mentorCount = document.getElementById("studentMentorCount");
     const sessionCount = document.getElementById("studentSessionCount");
@@ -330,16 +328,16 @@ function loadStudentDashboard() {
     if (sessionCount) sessionCount.textContent = sessions.length;
     if (referralCount) referralCount.textContent = referrals.length;
 
-    loadRecommendedMentors();
+    loadRecommendedMentors(mentors);
 }
 
-function loadRecommendedMentors() {
+function loadRecommendedMentors(mentors) {
     const container = document.getElementById("studentRecommendedMentors");
     if (!container) return;
 
-    const mentors = getUsers().filter(u => u.role === "alumni").slice(0, 6);
+    const featured = mentors.slice(0, 6);
 
-    if (mentors.length === 0) {
+    if (featured.length === 0) {
         container.innerHTML = `
             <div class="empty-state">
                 <div class="empty-state-icon">👨‍💼</div>
@@ -348,23 +346,19 @@ function loadRecommendedMentors() {
         `;
         return;
     }
-    container.innerHTML = mentors.map(mentor => createMentorCard(mentor)).join("");
+    container.innerHTML = featured.map(mentor => createMentorCard(mentor)).join("");
 }
 
 /* =========================================================
    STUDENT MENTORS
    ========================================================= */
-function loadStudentMentors() {
+async function loadStudentMentors() {
     const container = document.getElementById("studentMentorList");
     if (!container) return;
-    const search = document.getElementById("mentorSearch")?.value.trim().toLowerCase() || "";
+    const search = document.getElementById("mentorSearch")?.value.trim() || "";
 
-    const mentors = getUsers()
-        .filter(user => user.role === "alumni")
-        .filter(mentor => {
-            const text = [mentor.name, mentor.company, mentor.jobTitle, mentor.skills, mentor.bio].join(" ").toLowerCase();
-            return text.includes(search);
-        });
+    const result = await API.listMentors(search);
+    const mentors = result.success ? result.data : [];
 
     if (mentors.length === 0) {
         container.innerHTML = `<div class="empty-state">No mentors found.</div>`;
@@ -398,17 +392,16 @@ function createMentorCard(mentor) {
 /* =========================================================
    ALUMNI FULL PROFILE MODAL
    ========================================================= */
-function openAlumniProfileModal(alumniId) {
-    const alumni = getUsers().find(u => u.id === alumniId && u.role === "alumni");
-    if (!alumni) return;
+async function openAlumniProfileModal(alumniId) {
+    const result = await API.getAlumni(alumniId);
+    if (!result.success) {
+        showToast(result.message || "Could not load this profile.");
+        return;
+    }
+    const alumni = result.data;
 
-    const slots = getAvailability()
-        .filter(slot => slot.alumniId === alumniId && slot.status === "available")
-        .filter(slot => slot.date >= getTodayDate())
-        .sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
-
-    const availableSlots = slots.length
-        ? slots.map(slot => `
+    const availableSlots = alumni.slots.length
+        ? alumni.slots.map(slot => `
             <div class="profile-slot">
                 <span>📅 ${formatDateTime(slot.date, slot.time)}</span>
                 <span>${slot.duration} mins</span>
@@ -451,57 +444,51 @@ function openAlumniProfileModal(alumniId) {
 /* =========================================================
    STUDENT SESSIONS
    ========================================================= */
-function loadStudentSessions() {
+async function loadStudentSessions() {
     const container = document.getElementById("studentSessionList");
     if (!container) return;
-    const user = getCurrentUser();
-    if (!user) return;
 
-    const sessions = getSessions()
-        .filter(s => s.studentId === user.id)
-        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    const result = await API.listSessions();
+    const sessions = result.success ? result.data : [];
 
     if (sessions.length === 0) {
         container.innerHTML = `<div class="empty-state"><div class="empty-state-icon">📅</div>No mentorship sessions yet.</div>`;
         return;
     }
 
-    const users = getUsers();
-    container.innerHTML = sessions.map(session => {
-        const alumni = users.find(u => u.id === session.alumniId);
-        return `
-            <div class="data-card">
-                <div>
-                    <h3>${escapeHTML(alumni?.name || "Alumni")}</h3>
-                    <p>${escapeHTML(alumni?.company || "")}</p>
-                    <p>📅 ${formatDateTime(session.date, session.time)}</p>
-                    <span class="status status-${getSessionStatusClass(session.status)}">${capitalize(session.status)}</span>
-                </div>
-                <div class="data-card-actions">
-                    ${(session.status === "pending" || session.status === "confirmed")
-                        ? `<button class="danger-button" onclick="cancelSession('${session.id}')">Cancel Session</button>` : ""}
-                </div>
+    container.innerHTML = sessions.map(session => `
+        <div class="data-card">
+            <div>
+                <h3>${escapeHTML(session.alumniName || "Alumni")}</h3>
+                <p>${escapeHTML(session.alumniCompany || "")}</p>
+                <p>📅 ${formatDateTime(session.date, session.time)}</p>
+                <span class="status status-${getSessionStatusClass(session.status)}">${capitalize(session.status)}</span>
             </div>
-        `;
-    }).join("");
+            <div class="data-card-actions">
+                ${(session.status === "pending" || session.status === "confirmed")
+                    ? `<button class="danger-button" onclick="openCancelSessionModal(${session.id})">Cancel Session</button>` : ""}
+            </div>
+        </div>
+    `).join("");
 }
 
 function getSessionStatusClass(status) {
     if (status === "confirmed") return "confirmed";
-    if (status === "cancelled") return "cancelled";
+    if (status === "cancelled" || status === "declined") return "cancelled";
     return "pending";
 }
 
 /* =========================================================
    MENTORSHIP SESSION REQUEST
    ========================================================= */
-function openMentorSessionModal(alumniId) {
-    const alumni = getUsers().find(u => u.id === alumniId && u.role === "alumni");
-    if (!alumni) return;
-
-    const slots = getAvailability()
-        .filter(slot => slot.alumniId === alumniId && slot.status === "available")
-        .filter(slot => slot.date >= getTodayDate());
+async function openMentorSessionModal(alumniId) {
+    const result = await API.getAlumni(alumniId);
+    if (!result.success) {
+        showToast(result.message || "Could not load this mentor.");
+        return;
+    }
+    const alumni = result.data;
+    const slots = alumni.slots;
 
     if (slots.length === 0) {
         showToast("This alumni has no available session slots.");
@@ -529,39 +516,22 @@ function openMentorSessionModal(alumniId) {
     openModal(html);
 }
 
-function requestMentorshipSession(event, alumniId) {
+async function requestMentorshipSession(event, alumniId) {
     event.preventDefault();
-    const student = getCurrentUser();
-    if (!student || student.role !== "student") return;
-
     const slotId = document.getElementById("sessionSlot")?.value;
     const message = document.getElementById("sessionMessage")?.value.trim();
-    const availability = getAvailability();
-    const slot = availability.find(s => s.id === slotId);
 
-    if (!slot) {
+    if (!slotId) {
         showToast("Please select a valid slot.");
         return;
     }
 
-    const sessions = getSessions();
-    sessions.push({
-        id: generateId("session"),
-        studentId: student.id,
-        alumniId: alumniId,
-        slotId: slot.id,
-        date: slot.date,
-        time: slot.time,
-        duration: slot.duration,
-        message: message,
-        status: "pending",
-        createdAt: new Date().toISOString()
-    });
+    const result = await API.createSession({ alumniId, slotId, message });
+    if (!result.success) {
+        showToast(result.message || "Could not send request.");
+        return;
+    }
 
-    saveSessions(sessions);
-    saveAvailability(availability); // Keeps the slot available for multiple requests 
-
-    addNotification(alumniId, "New Mentorship Request", `${student.name} requested a mentorship session with you.`);
     closeModal();
     showToast("Mentorship request sent successfully.");
     loadStudentSessions();
@@ -574,7 +544,7 @@ function openCancelSessionModal(sessionId) {
     const html = `
         <h2 class="modal-title">Cancel Session</h2>
         <p class="modal-subtitle">Please provide a reason for cancelling this session.</p>
-        <form onsubmit="confirmCancelSession(event, '${sessionId}')">
+        <form onsubmit="confirmCancelSession(event, ${sessionId})">
             <div class="form-group">
                 <label>Reason for Cancellation</label>
                 <textarea id="cancelReason" placeholder="Enter reason..." required></textarea>
@@ -585,52 +555,20 @@ function openCancelSessionModal(sessionId) {
     openModal(html);
 }
 
-function confirmCancelSession(event, sessionId) {
+async function confirmCancelSession(event, sessionId) {
     event.preventDefault();
     const reason = document.getElementById("cancelReason")?.value.trim();
-    cancelSession(sessionId, reason);
+    await cancelSession(sessionId, reason);
     closeModal();
 }
 
-function cancelSession(sessionId, reason = "") {
-    const sessions = getSessions();
-    const session = sessions.find(s => s.id === sessionId);
-    if (!session) return;
-
-    const currentUser = getCurrentUser();
-    if (!currentUser) return;
-
-    const isStudentOwner = currentUser.role === "student" && currentUser.id === session.studentId;
-    const isAlumniOwner = currentUser.role === "alumni" && currentUser.id === session.alumniId;
-    if (!isStudentOwner && !isAlumniOwner) {
-        showToast("You are not allowed to cancel this session.");
+async function cancelSession(sessionId, reason = "") {
+    const result = await API.cancelSession(sessionId, reason);
+    if (!result.success) {
+        showToast(result.message || "This session cannot be cancelled.");
         return;
     }
 
-    if (session.status !== "pending" && session.status !== "confirmed") {
-        showToast("This session cannot be cancelled.");
-        return;
-    }
-
-    session.status = "cancelled";
-    session.cancelledAt = new Date().toISOString();
-    session.cancelledBy = currentUser.role;
-
-    saveSessions(sessions);
-
-    const availability = getAvailability();
-    const slot = availability.find(s => s.id === session.slotId);
-    if (slot) {
-        slot.status = "available";
-        saveAvailability(availability);
-    }
-
-    const recipientId = currentUser.role === "student" ? session.alumniId : session.studentId;
-    const notificationMessage = currentUser.role === "alumni"
-        ? `${currentUser.name} cancelled your mentorship session scheduled for ${formatDateTime(session.date, session.time)}.` + (reason ? ` Reason: ${reason}` : "")
-        : `${currentUser.name} cancelled the mentorship session scheduled for ${formatDateTime(session.date, session.time)}.`;
-
-    addNotification(recipientId, "Session Cancelled", notificationMessage);
     showToast("Session cancelled successfully.");
 
     if (currentUser.role === "student") {
@@ -646,19 +584,24 @@ function cancelSession(sessionId, reason = "") {
 /* =========================================================
    ALUMNI DASHBOARD
    ========================================================= */
-function loadAlumniDashboard() {
-    const alumni = getCurrentUser();
-    if (!alumni || alumni.role !== "alumni") return;
+async function loadAlumniDashboard() {
+    if (!currentUser || currentUser.role !== "alumni") return;
 
     const welcomeName = document.getElementById("alumniWelcomeName");
     const headerName = document.getElementById("alumniHeaderName");
-    if (welcomeName) welcomeName.textContent = alumni.name;
-    if (headerName) headerName.textContent = alumni.name;
+    if (welcomeName) welcomeName.textContent = currentUser.name;
+    if (headerName) headerName.textContent = currentUser.name;
 
-    const slots = getAvailability().filter(s => s.alumniId === alumni.id && s.status === "available");
-    const sessions = getSessions().filter(s => s.alumniId === alumni.id);
+    const [availabilityResult, sessionsResult, referralsResult] = await Promise.all([
+        API.listAvailability(),
+        API.listSessions(),
+        API.listReferrals()
+    ]);
+
+    const slots = (availabilityResult.success ? availabilityResult.data : []).filter(s => s.status === "available");
+    const sessions = sessionsResult.success ? sessionsResult.data : [];
     const pendingSessions = sessions.filter(s => s.status === "pending");
-    const referrals = getReferrals().filter(r => r.alumniId === alumni.id && r.status === "pending");
+    const referrals = (referralsResult.success ? referralsResult.data : []).filter(r => r.status === "pending");
 
     const slotCount = document.getElementById("alumniSlotCount");
     const pendingCount = document.getElementById("alumniPendingCount");
@@ -668,125 +611,88 @@ function loadAlumniDashboard() {
     if (pendingCount) pendingCount.textContent = pendingSessions.length;
     if (referralCount) referralCount.textContent = referrals.length;
 
-    loadAlumniRecentRequests();
+    loadAlumniRecentRequests(pendingSessions);
 }
 
-function loadAlumniRecentRequests() {
+function loadAlumniRecentRequests(pendingSessions) {
     const container = document.getElementById("alumniRecentRequests");
     if (!container) return;
-    const alumni = getCurrentUser();
-    if (!alumni) return;
 
-    const sessions = getSessions()
-        .filter(s => s.alumniId === alumni.id && s.status === "pending")
-        .slice(0, 5);
+    const sessions = pendingSessions.slice(0, 5);
 
     if (sessions.length === 0) {
         container.innerHTML = `<div class="empty-state">No pending requests.</div>`;
         return;
     }
 
-    const users = getUsers();
-    container.innerHTML = sessions.map(session => {
-        const student = users.find(u => u.id === session.studentId);
-        return `
-            <div class="data-card">
-                <div>
-                    <h3>${escapeHTML(student?.name || "Student")}</h3>
-                    <p>Requested a mentorship session.</p>
-                </div>
-                <div class="data-card-actions">
-                    <button class="primary-button" onclick="showAlumniPage('requests')">View Request</button>
-                </div>
+    container.innerHTML = sessions.map(session => `
+        <div class="data-card">
+            <div>
+                <h3>${escapeHTML(session.studentName || "Student")}</h3>
+                <p>Requested a mentorship session.</p>
             </div>
-        `;
-    }).join("");
+            <div class="data-card-actions">
+                <button class="primary-button" onclick="showAlumniPage('requests')">View Request</button>
+            </div>
+        </div>
+    `).join("");
 }
 
 /* =========================================================
    ALUMNI REQUESTS
    ========================================================= */
-function loadAlumniRequests() {
+async function loadAlumniRequests() {
     const container = document.getElementById("alumniRequestList");
     if (!container) return;
-    const alumni = getCurrentUser();
-    if (!alumni) return;
 
-    const sessions = getSessions()
-        .filter(s => s.alumniId === alumni.id)
-        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    const result = await API.listSessions();
+    const sessions = result.success ? result.data : [];
 
     if (sessions.length === 0) {
         container.innerHTML = `<div class="empty-state"><div class="empty-state-icon">📩</div>No mentorship requests.</div>`;
         return;
     }
 
-    const users = getUsers();
-    container.innerHTML = sessions.map(session => {
-        const student = users.find(u => u.id === session.studentId);
-        return `
-            <div class="data-card">
-                <div>
-                    <h3>${escapeHTML(student?.name || "Student")}</h3>
-                    <p>${escapeHTML(student?.department || "")}</p>
-                    <p>📅 ${formatDateTime(session.date, session.time)}</p>
-                    <p>${escapeHTML(session.message || "")}</p>
-                    <span class="status status-${getSessionStatusClass(session.status)}">${capitalize(session.status)}</span>
-                </div>
-                <div class="data-card-actions">
-                    ${session.status === "pending"
-                        ? `<button class="success-button" onclick="acceptSession('${session.id}')">Accept</button>
-                           <button class="danger-button" onclick="declineSession('${session.id}')">Decline</button>
-                           <button class="danger-button" onclick="openCancelSessionModal('${session.id}')">Cancel Session</button>`
-                        : session.status === "confirmed"
-                        ? `<button class="danger-button" onclick="openCancelSessionModal('${session.id}')">Cancel Session</button>`
-                        : ""}
-                </div>
+    container.innerHTML = sessions.map(session => `
+        <div class="data-card">
+            <div>
+                <h3>${escapeHTML(session.studentName || "Student")}</h3>
+                <p>${escapeHTML(session.studentDepartment || "")}</p>
+                <p>📅 ${formatDateTime(session.date, session.time)}</p>
+                <p>${escapeHTML(session.message || "")}</p>
+                <span class="status status-${getSessionStatusClass(session.status)}">${capitalize(session.status)}</span>
             </div>
-        `;
-    }).join("");
+            <div class="data-card-actions">
+                ${session.status === "pending"
+                    ? `<button class="success-button" onclick="acceptSession(${session.id})">Accept</button>
+                       <button class="danger-button" onclick="declineSession(${session.id})">Decline</button>
+                       <button class="danger-button" onclick="openCancelSessionModal(${session.id})">Cancel Session</button>`
+                    : session.status === "confirmed"
+                    ? `<button class="danger-button" onclick="openCancelSessionModal(${session.id})">Cancel Session</button>`
+                    : ""}
+            </div>
+        </div>
+    `).join("");
 }
 
-function acceptSession(sessionId) {
-    const sessions = getSessions();
-    const session = sessions.find(s => s.id === sessionId);
-    if (!session) return;
-
-    session.status = "confirmed";
-    session.updatedAt = new Date().toISOString();
-    saveSessions(sessions);
-
-    const alumni = getCurrentUser();
-    if (!alumni) return;
-
-    addNotification(session.studentId, "Session Accepted", `${alumni.name} accepted your mentorship session request for ${formatDateTime(session.date, session.time)}.`);
+async function acceptSession(sessionId) {
+    const result = await API.acceptSession(sessionId);
+    if (!result.success) {
+        showToast(result.message || "Could not accept this session.");
+        return;
+    }
     showToast("Session accepted.");
     loadAlumniRequests();
     loadAlumniDashboard();
     updateAllNotifications();
 }
 
-function declineSession(sessionId) {
-    const sessions = getSessions();
-    const session = sessions.find(s => s.id === sessionId);
-    if (!session) return;
-
-    session.status = "cancelled";
-    session.cancelledAt = new Date().toISOString();
-    session.cancelledBy = "alumni";
-    saveSessions(sessions);
-
-    const availability = getAvailability();
-    const slot = availability.find(s => s.id === session.slotId);
-    if (slot) {
-        slot.status = "available";
-        saveAvailability(availability);
+async function declineSession(sessionId) {
+    const result = await API.declineSession(sessionId);
+    if (!result.success) {
+        showToast(result.message || "Could not decline this session.");
+        return;
     }
-
-    const alumni = getCurrentUser();
-    if (!alumni) return;
-
-    addNotification(session.studentId, "Session Request Declined", `${alumni.name} declined your mentorship session request.`);
     showToast("Session request declined.");
     loadAlumniRequests();
     loadAlumniDashboard();
@@ -796,29 +702,27 @@ function declineSession(sessionId) {
 /* =========================================================
    ALUMNI AVAILABILITY
    ========================================================= */
-function loadAlumniAvailability() {
+async function loadAlumniAvailability() {
     const container = document.getElementById("alumniAvailabilityList");
     if (!container) return;
-    const alumni = getCurrentUser();
-    if (!alumni) return;
 
-    const slots = getAvailability().filter(s => s.alumniId === alumni.id);
+    const result = await API.listAvailability();
+    const slots = result.success ? result.data : [];
 
     if (slots.length === 0) {
         container.innerHTML = `<div class="empty-state"><div class="empty-state-icon">📅</div>No availability added yet.</div>`;
         return;
     }
 
-    container.innerHTML = slots.sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time))
-        .map(slot => `
-            <div class="availability-card">
-                <h3>${formatDate(slot.date)}</h3>
-                <div class="availability-date">${formatTime(slot.time)}</div>
-                <div class="availability-time">${slot.duration} minutes</div>
-                <span class="status ${slot.status === "available" ? "status-confirmed" : "status-pending"}">${capitalize(slot.status)}</span>
-                ${slot.status === "available" ? `<br><br><button class="danger-button" onclick="deleteAvailability('${slot.id}')">Remove Slot</button>` : ""}
-            </div>
-        `).join("");
+    container.innerHTML = slots.map(slot => `
+        <div class="availability-card">
+            <h3>${formatDate(slot.date)}</h3>
+            <div class="availability-date">${formatTime(slot.time)}</div>
+            <div class="availability-time">${slot.duration} minutes</div>
+            <span class="status ${slot.status === "available" ? "status-confirmed" : "status-pending"}">${capitalize(slot.status)}</span>
+            ${slot.status === "available" ? `<br><br><button class="danger-button" onclick="deleteAvailability(${slot.id})">Remove Slot</button>` : ""}
+        </div>
+    `).join("");
 }
 
 function openAvailabilityModal() {
@@ -848,11 +752,8 @@ function openAvailabilityModal() {
     openModal(html);
 }
 
-function addAvailability(event) {
+async function addAvailability(event) {
     event.preventDefault();
-    const alumni = getCurrentUser();
-    if (!alumni || alumni.role !== "alumni") return;
-
     const date = document.getElementById("availDate")?.value;
     const time = document.getElementById("availTime")?.value;
     const duration = parseInt(document.getElementById("availDuration")?.value);
@@ -862,28 +763,24 @@ function addAvailability(event) {
         return;
     }
 
-    const availability = getAvailability();
-    availability.push({
-        id: generateId("slot"),
-        alumniId: alumni.id,
-        date: date,
-        time: time,
-        duration: duration,
-        status: "available",
-        createdAt: new Date().toISOString()
-    });
+    const result = await API.createAvailability({ date, time, duration });
+    if (!result.success) {
+        showToast(result.message || "Could not add slot.");
+        return;
+    }
 
-    saveAvailability(availability);
     closeModal();
     showToast("Availability slot added.");
     loadAlumniAvailability();
     loadAlumniDashboard();
 }
 
-function deleteAvailability(slotId) {
-    let availability = getAvailability();
-    availability = availability.filter(s => s.id !== slotId);
-    saveAvailability(availability);
+async function deleteAvailability(slotId) {
+    const result = await API.deleteAvailability(slotId);
+    if (!result.success) {
+        showToast(result.message || "Could not remove slot.");
+        return;
+    }
     showToast("Slot removed.");
     loadAlumniAvailability();
     loadAlumniDashboard();
@@ -892,16 +789,17 @@ function deleteAvailability(slotId) {
 /* =========================================================
    REFERRALS
    ========================================================= */
-function openReferralRequestModal(alumniId = "") {
-    const mentors = getUsers().filter(u => u.role === "alumni");
+async function openReferralRequestModal(alumniId = "") {
+    const result = await API.listMentors();
+    const mentors = result.success ? result.data : [];
+
     if (mentors.length === 0) {
         showToast("No alumni available for referral requests.");
         return;
     }
 
-    const student = getCurrentUser();
-    const defaultCv = student?.cvLink || "";
-    const defaultPortfolio = student?.portfolioLink || "";
+    const defaultCv = currentUser?.cvLink || "";
+    const defaultPortfolio = currentUser?.portfolioLink || "";
 
     const html = `
         <h2 class="modal-title">Request Job Referral</h2>
@@ -944,10 +842,8 @@ function openReferralRequestModal(alumniId = "") {
     openModal(html);
 }
 
-function submitReferralRequest(event) {
+async function submitReferralRequest(event) {
     event.preventDefault();
-    const student = getCurrentUser();
-    if (!student || student.role !== "student") return;
 
     const alumniId = document.getElementById("referralAlumni")?.value;
     const company = document.getElementById("referralCompany")?.value.trim();
@@ -956,24 +852,12 @@ function submitReferralRequest(event) {
     const portfolioLink = document.getElementById("referralPortfolioLink")?.value.trim();
     const message = document.getElementById("referralMessage")?.value.trim();
 
-    const referrals = getReferrals();
-    referrals.push({
-        id: generateId("referral"),
-        studentId: student.id,
-        alumniId: alumniId,
-        company: company,
-        position: position,
-        cvLink: cvLink,
-        portfolioLink: portfolioLink,
-        message: message,
-        status: "pending",
-        proofNote: "",
-        proofLink: "",
-        createdAt: new Date().toISOString()
-    });
+    const result = await API.createReferral({ alumniId, company, position, cvLink, portfolioLink, message });
+    if (!result.success) {
+        showToast(result.message || "Could not submit referral request.");
+        return;
+    }
 
-    saveReferrals(referrals);
-    addNotification(alumniId, "New Referral Request", `${student.name} requested a job referral for ${position} at ${company}.`);
     closeModal();
     showToast("Referral request submitted successfully.");
     loadStudentReferrals();
@@ -983,83 +867,72 @@ function submitReferralRequest(event) {
 /* =========================================================
    STUDENT REFERRALS
    ========================================================= */
-function loadStudentReferrals() {
+async function loadStudentReferrals() {
     const container = document.getElementById("studentReferralList");
     if (!container) return;
-    const student = getCurrentUser();
-    if (!student || student.role !== "student") return;
 
-    const referrals = getReferrals()
-        .filter(r => r.studentId === student.id)
-        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    const result = await API.listReferrals();
+    const referrals = result.success ? result.data : [];
 
     if (referrals.length === 0) {
         container.innerHTML = `<div class="empty-state"><div class="empty-state-icon">📄</div>No referral requests sent yet.</div>`;
         return;
     }
 
-    const users = getUsers();
-    container.innerHTML = referrals.map(r => {
-        const alumni = users.find(u => u.id === r.alumniId);
-        return `
-            <div class="referral-card">
-                <div class="referral-card-header">
-                    <div>
-                        <h3>${escapeHTML(r.position)} at ${escapeHTML(r.company)}</h3>
-                        <p>Requested to <strong>${escapeHTML(alumni?.name || "Alumni")}</strong></p>
-                    </div>
-                    <span class="status status-${r.status}">${capitalize(r.status)}</span>
+    container.innerHTML = referrals.map(r => `
+        <div class="referral-card">
+            <div class="referral-card-header">
+                <div>
+                    <h3>${escapeHTML(r.position)} at ${escapeHTML(r.company)}</h3>
+                    <p>Requested to <strong>${escapeHTML(r.alumniName || "Alumni")}</strong></p>
                 </div>
-                ${r.cvLink ? `<a href="${escapeHTML(r.cvLink)}" target="_blank" class="referral-job-link">📄 View CV</a><br>` : ""}
-                ${r.portfolioLink ? `<a href="${escapeHTML(r.portfolioLink)}" target="_blank" class="referral-job-link">🔗 View Portfolio/GitHub</a><br>` : ""}
-                <br>
-                <div class="referral-message">
-                    <strong>Message:</strong>
-                    ${escapeHTML(r.message)}
-                </div>
-                ${r.status === "referred" ? `
-                    <div class="referral-success-box">
-                        <strong>🎉 Referral Submitted by Alumni!</strong>
-                        ${r.proofNote ? `<p style="margin-top:4px;">${escapeHTML(r.proofNote)}</p>` : ""}
-                        ${r.proofLink ? `<p style="margin-top:4px;"><a href="${escapeHTML(r.proofLink)}" target="_blank" style="color:#15803d; font-weight:700;">View Referral Confirmation Link</a></p>` : ""}
-                    </div>
-                ` : ""}
+                <span class="status status-${r.status}">${capitalize(r.status)}</span>
             </div>
-        `;
-    }).join("");
+            ${r.cvLink ? `<a href="${escapeHTML(r.cvLink)}" target="_blank" class="referral-job-link">📄 View CV</a><br>` : ""}
+            ${r.portfolioLink ? `<a href="${escapeHTML(r.portfolioLink)}" target="_blank" class="referral-job-link">🔗 View Portfolio/GitHub</a><br>` : ""}
+            <br>
+            <div class="referral-message">
+                <strong>Message:</strong>
+                ${escapeHTML(r.message)}
+            </div>
+            ${r.status === "referred" ? `
+                <div class="referral-success-box">
+                    <strong>🎉 Referral Submitted by Alumni!</strong>
+                    ${r.proofNote ? `<p style="margin-top:4px;">${escapeHTML(r.proofNote)}</p>` : ""}
+                    ${r.proofLink ? `<p style="margin-top:4px;"><a href="${escapeHTML(r.proofLink)}" target="_blank" style="color:#15803d; font-weight:700;">View Referral Confirmation Link</a></p>` : ""}
+                </div>
+            ` : ""}
+        </div>
+    `).join("");
 }
 
 /* =========================================================
    ALUMNI REFERRALS
    ========================================================= */
-function loadAlumniReferrals() {
+async function loadAlumniReferrals() {
     const container = document.getElementById("alumniReferralList");
     if (!container) return;
-    const alumni = getCurrentUser();
-    if (!alumni || alumni.role !== "alumni") return;
 
-    const referrals = getReferrals()
-        .filter(r => r.alumniId === alumni.id)
-        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    const result = await API.listReferrals();
+    const referrals = result.success ? result.data : [];
 
     if (referrals.length === 0) {
         container.innerHTML = `<div class="empty-state"><div class="empty-state-icon">🤝</div><h3>No referral requests yet</h3></div>`;
         return;
     }
 
-    const users = getUsers();
-    container.innerHTML = referrals.map(r => createAlumniReferralCard(r, users.find(u => u.id === r.studentId))).join("");
+    container.innerHTML = referrals.map(r => createAlumniReferralCard(r)).join("");
 }
 
-function createAlumniReferralCard(referral, student) {
+function createAlumniReferralCard(referral) {
     return `
         <div class="referral-card">
             <div class="referral-card-header">
                 <div class="referral-user">
-                    <div class="referral-avatar">${escapeHTML(getInitials(student?.name || "Student"))}</div>
+                    <div class="referral-avatar">${escapeHTML(getInitials(referral.studentName || "Student"))}</div>
                     <div>
-                        <h3>${escapeHTML(student?.name || "Student")}</h3>
-                        <p>${escapeHTML(student?.department || "Student")}</p>
+                        <h3>${escapeHTML(referral.studentName || "Student")}</h3>
+                        <p>${escapeHTML(referral.studentDepartment || "Student")}</p>
                     </div>
                 </div>
                 <span class="status status-${referral.status}">${capitalize(referral.status)}</span>
@@ -1083,41 +956,34 @@ function createAlumniReferralCard(referral, student) {
             </div>
             ${referral.status === "pending" ? `
                 <div class="referral-actions">
-                    <button class="success-button" onclick="openReferralSubmitModal('${referral.id}')">Accept & Submit Referral</button>
-                    <button class="danger-button" onclick="updateReferralStatus('${referral.id}', 'declined')">Decline</button>
+                    <button class="success-button" onclick="openReferralSubmitModal(${referral.id})">Accept & Submit Referral</button>
+                    <button class="danger-button" onclick="updateReferralStatus(${referral.id}, 'declined')">Decline</button>
                 </div>
             ` : ""}
         </div>
     `;
 }
 
-function updateReferralStatus(referralId, newStatus) {
-    const referrals = getReferrals();
-    const referral = referrals.find(r => r.id === referralId);
-    if (!referral) return;
+async function updateReferralStatus(referralId, newStatus) {
+    if (newStatus !== "declined") return;
 
-    referral.status = newStatus;
-    referral.updatedAt = new Date().toISOString();
-    saveReferrals(referrals);
+    const result = await API.declineReferral(referralId);
+    if (!result.success) {
+        showToast(result.message || "Could not update referral status.");
+        return;
+    }
 
-    const alumni = getCurrentUser();
-    if (!alumni) return;
-
-    addNotification(referral.studentId, `Referral Status: ${capitalize(newStatus)}`, `${alumni.name} updated your referral status for ${referral.position} at ${referral.company} to ${newStatus}.`);
-    showToast(`Referral status updated to ${newStatus}.`);
+    showToast("Referral status updated to declined.");
     loadAlumniReferrals();
     loadAlumniDashboard();
     updateAllNotifications();
 }
 
 function openReferralSubmitModal(referralId) {
-    const referral = getReferrals().find(r => r.id === referralId);
-    if (!referral) return;
-
     const html = `
         <h2 class="modal-title">Mark Referral as Submitted</h2>
-        <p class="modal-subtitle">Provide details or proof for referring ${escapeHTML(referral.position)} at ${escapeHTML(referral.company)}</p>
-        <form onsubmit="submitReferralProof(event, '${referralId}')">
+        <p class="modal-subtitle">Provide details or proof for this referral</p>
+        <form onsubmit="submitReferralProof(event, ${referralId})">
             <div class="form-group">
                 <label>Notes / Message to Student</label>
                 <textarea id="referralProofNote" placeholder="e.g. Submitted your resume internally via employee portal." required></textarea>
@@ -1132,22 +998,17 @@ function openReferralSubmitModal(referralId) {
     openModal(html);
 }
 
-function submitReferralProof(event, referralId) {
+async function submitReferralProof(event, referralId) {
     event.preventDefault();
-    const referrals = getReferrals();
-    const referral = referrals.find(r => r.id === referralId);
-    if (!referral) return;
+    const proofNote = document.getElementById("referralProofNote")?.value.trim() || "";
+    const proofLink = document.getElementById("referralProofLink")?.value.trim() || "";
 
-    referral.status = "referred";
-    referral.proofNote = document.getElementById("referralProofNote")?.value.trim() || "";
-    referral.proofLink = document.getElementById("referralProofLink")?.value.trim() || "";
-    referral.updatedAt = new Date().toISOString();
-    saveReferrals(referrals);
+    const result = await API.submitReferralProof(referralId, proofNote, proofLink);
+    if (!result.success) {
+        showToast(result.message || "Could not submit referral.");
+        return;
+    }
 
-    const alumni = getCurrentUser();
-    if (!alumni) return;
-
-    addNotification(referral.studentId, "Referral Submitted 🎉", `${alumni.name} submitted a referral for ${referral.position} at ${referral.company}.`);
     closeModal();
     showToast("Referral submitted successfully.");
     loadAlumniReferrals();
@@ -1159,8 +1020,7 @@ function submitReferralProof(event, referralId) {
    STUDENT PROFILE
    ========================================================= */
 function loadStudentProfile() {
-    const user = getCurrentUser();
-    if (!user || user.role !== "student") return;
+    if (!currentUser || currentUser.role !== "student") return;
 
     const name = document.getElementById("studentProfileName");
     const email = document.getElementById("studentProfileEmail");
@@ -1169,41 +1029,41 @@ function loadStudentProfile() {
     const cvLink = document.getElementById("studentProfileCvLink");
     const portfolioLink = document.getElementById("studentProfilePortfolioLink");
 
-    if (name) name.value = user.name || "";
-    if (email) email.value = user.email || "";
-    if (department) department.value = user.department || "";
-    if (skills) skills.value = user.skills || "";
-    if (cvLink) cvLink.value = user.cvLink || "";
-    if (portfolioLink) portfolioLink.value = user.portfolioLink || "";
+    if (name) name.value = currentUser.name || "";
+    if (email) email.value = currentUser.email || "";
+    if (department) department.value = currentUser.department || "";
+    if (skills) skills.value = currentUser.skills || "";
+    if (cvLink) cvLink.value = currentUser.cvLink || "";
+    if (portfolioLink) portfolioLink.value = currentUser.portfolioLink || "";
 }
 
-function updateStudentProfile(event) {
+async function updateStudentProfile(event) {
     event.preventDefault();
-    const user = getCurrentUser();
-    if (!user) return;
 
-    user.name = document.getElementById("studentProfileName")?.value.trim() || "";
-    user.department = document.getElementById("studentProfileDepartment")?.value.trim() || "";
-    user.skills = document.getElementById("studentProfileSkills")?.value.trim() || "";
-    user.cvLink = document.getElementById("studentProfileCvLink")?.value.trim() || "";
-    user.portfolioLink = document.getElementById("studentProfilePortfolioLink")?.value.trim() || "";
+    const payload = {
+        name: document.getElementById("studentProfileName")?.value.trim() || "",
+        department: document.getElementById("studentProfileDepartment")?.value.trim() || "",
+        skills: document.getElementById("studentProfileSkills")?.value.trim() || "",
+        cvLink: document.getElementById("studentProfileCvLink")?.value.trim() || "",
+        portfolioLink: document.getElementById("studentProfilePortfolioLink")?.value.trim() || ""
+    };
 
-    const users = getUsers();
-    const index = users.findIndex(u => u.id === user.id);
-    if (index !== -1) {
-        users[index] = user;
-        saveUsers(users);
-        showToast("Profile updated successfully.");
-        loadStudentDashboard();
+    const result = await API.updateStudentProfile(payload);
+    if (!result.success) {
+        showToast(result.message || "Could not update profile.");
+        return;
     }
+
+    currentUser = result.data;
+    showToast("Profile updated successfully.");
+    loadStudentDashboard();
 }
 
 /* =========================================================
    ALUMNI PROFILE
    ========================================================= */
 function loadAlumniProfile() {
-    const user = getCurrentUser();
-    if (!user || user.role !== "alumni") return;
+    if (!currentUser || currentUser.role !== "alumni") return;
 
     const name = document.getElementById("alumniProfileName");
     const email = document.getElementById("alumniProfileEmail");
@@ -1212,62 +1072,48 @@ function loadAlumniProfile() {
     const skills = document.getElementById("alumniProfileSkills");
     const bio = document.getElementById("alumniProfileBio");
 
-    if (name) name.value = user.name || "";
-    if (email) email.value = user.email || "";
-    if (company) company.value = user.company || "";
-    if (job) job.value = user.jobTitle || "";
-    if (skills) skills.value = user.skills || "";
-    if (bio) bio.value = user.bio || "";
+    if (name) name.value = currentUser.name || "";
+    if (email) email.value = currentUser.email || "";
+    if (company) company.value = currentUser.company || "";
+    if (job) job.value = currentUser.jobTitle || "";
+    if (skills) skills.value = currentUser.skills || "";
+    if (bio) bio.value = currentUser.bio || "";
 }
 
-function updateAlumniProfile(event) {
+async function updateAlumniProfile(event) {
     event.preventDefault();
-    const user = getCurrentUser();
-    if (!user) return;
 
-    user.name = document.getElementById("alumniProfileName")?.value.trim() || "";
-    user.company = document.getElementById("alumniProfileCompany")?.value.trim() || "";
-    user.jobTitle = document.getElementById("alumniProfileJob")?.value.trim() || "";
-    user.skills = document.getElementById("alumniProfileSkills")?.value.trim() || "";
-    user.bio = document.getElementById("alumniProfileBio")?.value.trim() || "";
+    const payload = {
+        name: document.getElementById("alumniProfileName")?.value.trim() || "",
+        company: document.getElementById("alumniProfileCompany")?.value.trim() || "",
+        jobTitle: document.getElementById("alumniProfileJob")?.value.trim() || "",
+        skills: document.getElementById("alumniProfileSkills")?.value.trim() || "",
+        bio: document.getElementById("alumniProfileBio")?.value.trim() || ""
+    };
 
-    const users = getUsers();
-    const index = users.findIndex(u => u.id === user.id);
-    if (index !== -1) {
-        users[index] = user;
-        saveUsers(users);
-        showToast("Profile updated successfully.");
-        loadAlumniDashboard();
+    const result = await API.updateAlumniProfile(payload);
+    if (!result.success) {
+        showToast(result.message || "Could not update profile.");
+        return;
     }
+
+    currentUser = result.data;
+    showToast("Profile updated successfully.");
+    loadAlumniDashboard();
 }
 
 /* =========================================================
    NOTIFICATIONS
    ========================================================= */
-function addNotification(userId, title, message) {
-    const notifications = getNotifications();
-    notifications.push({
-        id: generateId("notif"),
-        userId: userId,
-        title: title,
-        message: message,
-        isRead: false,
-        createdAt: new Date().toISOString()
-    });
-    saveNotifications(notifications);
-}
+async function updateAllNotifications() {
+    if (!currentUser) return;
 
-function updateAllNotifications() {
-    const user = getCurrentUser();
-    if (!user) return;
-
-    const badge = document.getElementById(`${user.role}NotificationBadge`);
-    const list = document.getElementById(`${user.role}NotificationList`);
+    const badge = document.getElementById(`${currentUser.role}NotificationBadge`);
+    const list = document.getElementById(`${currentUser.role}NotificationList`);
     if (!badge || !list) return;
 
-    const allNotifs = getNotifications()
-        .filter(n => n.userId === user.id)
-        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    const result = await API.listNotifications();
+    const allNotifs = result.success ? result.data : [];
 
     const unreadCount = allNotifs.filter(n => !n.isRead).length;
 
@@ -1302,35 +1148,15 @@ function toggleNotifications(role) {
     }
 }
 
-function markNotificationsAsRead() {
-    const user = getCurrentUser();
-    if (!user) return;
-
-    let notifications = getNotifications();
-    let updated = false;
-
-    notifications = notifications.map(n => {
-        if (n.userId === user.id && !n.isRead) {
-            n.isRead = true;
-            updated = true;
-        }
-        return n;
-    });
-
-    if (updated) {
-        saveNotifications(notifications);
-        const badge = document.getElementById(`${user.role}NotificationBadge`);
-        if (badge) badge.classList.add("hidden");
-    }
+async function markNotificationsAsRead() {
+    await API.markNotificationsRead();
+    const badge = document.getElementById(`${currentUser.role}NotificationBadge`);
+    if (badge) badge.classList.add("hidden");
+    updateAllNotifications();
 }
 
-function clearNotifications(role) {
-    const user = getCurrentUser();
-    if (!user) return;
-
-    let notifications = getNotifications();
-    notifications = notifications.filter(n => n.userId !== user.id);
-    saveNotifications(notifications);
+async function clearNotifications(role) {
+    await API.clearNotifications();
     updateAllNotifications();
 }
 
@@ -1360,9 +1186,12 @@ window.addEventListener("click", (event) => {
 /* =========================================================
    INITIALIZATION
    ========================================================= */
-window.addEventListener("DOMContentLoaded", () => {
-    const user = getCurrentUser();
+window.addEventListener("DOMContentLoaded", async () => {
+    const result = await API.me();
+    const user = result.success ? result.data : null;
+
     if (user) {
+        currentUser = user;
         document.getElementById("authPage")?.classList.add("hidden");
         if (user.role === "student") {
             document.getElementById("studentApp")?.classList.remove("hidden");
